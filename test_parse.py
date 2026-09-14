@@ -105,3 +105,26 @@ for grup, gk in gruplar.items():
         assert anahtar in gosterilen, f"{grup} icin tabloya girmeyen fiyat: {anahtar}"
 
 print(f"Uretim OK — {len(hepsi)} fiyatin hepsi bir tablo hucresinde")
+
+
+# --- Kumulatif maliyet: karsilastirmalarin dayandigi hesap ---
+# Bu sayilar yanlissa karsilastirma sayfalari "su arac daha ucuz" diye
+# yanlis hukum verir; testin asil isi o.
+tucson = [k for k in kayitlar
+          if k["model"] == "TUCSON (NX4E)" and k["yakit"] == "benzin"]
+toplam = uret.kumulatif(tucson, 100_000)
+assert toplam, "TUCSON (NX4E) benzin 100.000 km'ye ulasmali"
+elle = sum(k["fiyat_tl"] for k in tucson if k["bakim_km"] <= 100_000)
+assert sum(toplam.values()) == elle, f"{sum(toplam.values())} != {elle}"
+
+# Verisi hedefe ulasmayan modelden "daha ucuz" sonucu cikmamali
+kisa = [k for k in tucson if k["bakim_km"] <= 45_000]
+assert uret.kumulatif(kisa, 100_000) is None, "eksik veri None donmeli"
+
+# Elle yazilan rakip esleri gercekten var mi (model adi degisirse kirilsin)
+mevcut = {(k["marka"], k["model"]) for k in hepsi}
+for hyu, ford in uret.RAKIPLER:
+    assert ("Hyundai", hyu) in mevcut, f"RAKIPLER'de olmayan model: {hyu}"
+    assert ("Ford", ford) in mevcut, f"RAKIPLER'de olmayan model: {ford}"
+
+print(f"Karsilastirma OK — {len(uret.RAKIPLER)} rakip esi, kumulatif hesap dogru")

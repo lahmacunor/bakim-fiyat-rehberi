@@ -8,7 +8,7 @@ import json
 import re
 import shutil
 import sys
-from collections import defaultdict
+from collections import Counter, defaultdict
 from pathlib import Path
 from string import Template
 
@@ -125,6 +125,194 @@ def tablo(kayitlar):
     )
 
 
+KILOMETRE = 100_000       # Karsilastirmalarin ortak olcusu
+
+
+def kumulatif(kayitlar, hedef_km=KILOMETRE):
+    """Sutun -> hedef km'ye kadar odenecek toplam bakim bedeli.
+
+    Modelin fiyat tablosu hedefe ulasmiyorsa None doner -- eksik veriden
+    "daha ucuz" sonucu cikarmak en tehlikeli hata olurdu.
+    """
+    kmler = sorted({k["bakim_km"] for k in kayitlar})
+    if not kmler or max(kmler) < hedef_km:
+        return None
+    return {
+        baslik: sum(v for km, v in f.items() if km <= hedef_km)
+        for baslik, f in sutunlastir(kayitlar, kmler)
+    }
+
+
+def km_basina(toplam):
+    """Turkce ondalik ayraci virgul -- "1.38 TL" yanlis, "1,38 TL" dogru."""
+    return f"{toplam / KILOMETRE:.2f}".replace(".", ",") + " TL"
+
+
+def orta(sayilar):
+    s = sorted(sayilar)
+    return s[len(s) // 2] if s else 0
+
+
+def maliyet_ozeti(mk):
+    """Model sayfasindaki '100.000 km'ye kadar ne oder' bolumu.
+
+    Ayri bir sayfa degil bolum: ayni model icin ikinci bir sayfa acmak
+    kendi sayfanla ayni sorguda yarismak demek.
+    """
+    satirlar = []
+    for yakit in sorted({k["yakit"] for k in mk}):
+        yk = [k for k in mk if k["yakit"] == yakit]
+        toplam = kumulatif(yk)
+        if not toplam:
+            continue
+        for motor, tl_toplam in sorted(toplam.items(), key=lambda i: i[1]):
+            satirlar.append(
+                f"<tr><th>{html.escape(motor)}</th>"
+                f"<td>{yakit}</td><td>{tl(tl_toplam)}</td>"
+                f"<td>{km_basina(tl_toplam)}</td></tr>"
+            )
+    if not satirlar:
+        return ""
+
+    km_yazi = f"{KILOMETRE:,}".replace(",", ".")
+    return (
+        f"<h2>{km_yazi} km'ye kadar toplam bakım maliyeti</h2>"
+        f"<p class='ozet'>Aşağıdaki tutar, aracın {km_yazi} km'ye ulaşana dek "
+        f"yetkili serviste ödeyeceği <strong>tüm periyodik bakımların "
+        f"toplamıdır</strong>. Kilometre başına maliyet, farklı motorları "
+        f"karşılaştırmayı kolaylaştırır.</p>"
+        f'<div class="kaydir"><table><thead><tr><th>Motor</th><th>Yakıt</th>'
+        f"<th>{km_yazi} km toplam</th><th>km başına</th></tr></thead>"
+        f"<tbody>{''.join(satirlar)}</tbody></table></div>"
+    )
+
+
+def kar_baglantilari(liste):
+    if not liste:
+        return ""
+    ogeler = "".join(
+        f"<li><a href='../../karsilastirma/{ad}/'>{html.escape(rakip)} ile "
+        "karşılaştır</a></li>"
+        for ad, rakip in sorted(liste, key=lambda x: x[1])
+    )
+    return f"<h2>Rakipleriyle bakım maliyeti</h2><ul class='liste'>{ogeler}</ul>"
+
+
+def ozet_tablosu(o):
+    satirlar = "".join(
+        f"<tr><th>{html.escape(m)}</th><td>{tl(v)}</td></tr>"
+        for m, v in sorted(o["toplam"].items(), key=lambda i: i[1])
+    )
+    km_yazi = f"{KILOMETRE:,}".replace(",", ".")
+    return (
+        f"<h3>{html.escape(o['marka'])} {html.escape(o['model'])}</h3>"
+        f'<div class="kaydir"><table><thead><tr><th>Motor</th>'
+        f"<th>{km_yazi} km toplam</th></tr></thead><tbody>{satirlar}</tbody>"
+        f"<tfoot><tr><th>Ortanca</th><td>{tl(o['orta'])}</td></tr></tfoot>"
+        "</table></div>"
+    )
+
+
+# Rakip esleri ELLE yazildi. Denendi ve birakildi: modelleri maliyete gore
+# birbirine eslestirmek. Veride segment alani yok, maliyet de segmenti
+# gostermiyor -- 1.5 motor hem Fiesta'da hem Bronco Sport'ta var. Otomatik
+# esleme "Bronco Sport vs Atos" gibi kimsenin aramadigi 188 sayfa uretti.
+# Az ve dogru cift, cok ve rastgele sayfadan iyidir.
+RAKIPLER = [
+    ("i20 / BAYON (BC3)", "FIESTA (2017- )"),
+    ("i20 / BAYON (BC3)", "PUMA (2019- )"),
+    ("i20 (BC3) FL", "FIESTA (2017- )"),
+    ("i20 TROY (PBT)", "FIESTA (2017- )"),
+    ("i30 (PDE)", "FOCUS (2018- )"),
+    ("i30 (GDE)", "FOCUS (2015-2018)"),
+    ("ELANTRA (CN7)", "FOCUS (2018- )"),
+    ("ELANTRA (AD)", "FOCUS (2015-2018)"),
+    ("TUCSON (NX4E)", "KUGA (2020- )"),
+    ("TUCSON (TLE)", "KUGA (2013-2020)"),
+    ("iX35 (EL)", "KUGA (2013-2020)"),
+    ("KONA (SX2)", "PUMA (2019- )"),
+    ("KONA (OS)", "ECOSPORT (2017- )"),
+    ("i40 (VF)", "MONDEO (2014- )"),
+    ("SONATA (NF)", "MONDEO (2014- )"),
+    ("GRANDEUR (TG)", "MONDEO (2014- )"),
+    ("SANTAFE (DM)", "EDGE (2015- )"),
+    ("STARIA (US4)", "TRANSIT/TOURNEO CUSTOM (2023-)"),
+    ("H1 VAN &KAMYONET (TQ)", "TRANSIT/TOURNEO CUSTOM (2012-2023)"),
+    ("H100 KAMYONET EURO6", "TRANSIT (2014-2019)"),
+]
+
+
+def model_ozeti(kayitlar, marka, model, yakit):
+    toplam = kumulatif([k for k in kayitlar if k["yakit"] == yakit])
+    if not toplam:
+        return None
+    return {"marka": marka, "model": model, "yakit": yakit, "toplam": toplam,
+            "orta": orta(list(toplam.values())),
+            "yol": f"{slug(marka)}/{slug(model)}/"}
+
+
+def rakip_ozeti(agac, hyu, ford):
+    """Iki modeli ORTAK yakitta karsilastirir.
+
+    Ortak yakit sarti onemli: benzinli bir modeli dizel bir modelle
+    karsilastirmak fiyat farkini motor turune borclu kilar, modele degil.
+    """
+    a_kayit = agac.get("Hyundai", {}).get(hyu)
+    b_kayit = agac.get("Ford", {}).get(ford)
+    if not a_kayit or not b_kayit:
+        print(f"  ! rakip eşi bulunamadı: {hyu} / {ford}", file=sys.stderr)
+        return None
+
+    ortak = ({k["yakit"] for k in a_kayit} & {k["yakit"] for k in b_kayit}) - {"bilinmiyor"}
+    for yakit in sorted(ortak, key=lambda y: -sum(1 for k in a_kayit if k["yakit"] == y)):
+        a = model_ozeti(a_kayit, "Hyundai", hyu, yakit)
+        b = model_ozeti(b_kayit, "Ford", ford, yakit)
+        if a and b:
+            return tuple(sorted([a, b], key=lambda o: (o["marka"], o["model"])))
+    return None
+
+
+def karsilastirma(a, b):
+    """Iki modelin ayni kilometreye kadar toplam bakim bedeli."""
+    ucuz, pahali = (a, b) if a["orta"] <= b["orta"] else (b, a)
+    fark = pahali["orta"] - ucuz["orta"]
+    km_yazi = f"{KILOMETRE:,}".replace(",", ".")
+
+    yuzde = fark / pahali["orta"] * 100 if pahali["orta"] else 0
+    # %1'in altindaki fark, tavan fiyat listelerinde gurultu sayilir --
+    # "%0 fark var" yazmak yerine esit oldugunu soylemek dogru olan.
+    if yuzde < 1:
+        hukum = (f"İki aracın {km_yazi} km'ye kadarki toplam bakım maliyeti "
+                 f"<strong>neredeyse aynı</strong>: {tl(ucuz['orta'])} ve "
+                 f"{tl(pahali['orta'])}. Aradaki {tl(fark)}'lik fark, bu "
+                 f"büyüklükteki bir toplamda belirleyici değil.")
+    else:
+        hukum = (
+            f"<strong>{html.escape(ucuz['marka'])} {html.escape(ucuz['model'])}</strong>, "
+            f"{km_yazi} km'ye kadar <strong>{tl(fark)}</strong> daha ucuza bakım "
+            f"yaptırıyor — {html.escape(pahali['marka'])} {html.escape(pahali['model'])} "
+            f"ile arada %{yuzde:.0f} fark var."
+        )
+
+    return (
+        f"<h1>{html.escape(a['marka'])} {html.escape(a['model'])} ile "
+        f"{html.escape(b['marka'])} {html.escape(b['model'])} bakım maliyeti "
+        f"karşılaştırması</h1>"
+        f"<p class='ozet'>{hukum} Karşılaştırma, her iki markanın kendi yayımladığı "
+        f"resmî periyodik bakım tablosundaki tutarların {km_yazi} km'ye kadar "
+        f"toplanmasıyla yapıldı; ortanca, modelin motor seçenekleri arasındaki "
+        f"orta değerdir. Her iki araç da <strong>{a['yakit']}</strong>.</p>"
+        + ozet_tablosu(a) + ozet_tablosu(b)
+        + '<div class="reklam-alani"></div>'
+        + f"<p class='kaynak'>Ayrıntılı bakım aralığı tabloları: "
+        f"<a href='../../{a['yol']}'>{html.escape(a['marka'])} "
+        f"{html.escape(a['model'])}</a> · "
+        f"<a href='../../{b['yol']}'>{html.escape(b['marka'])} "
+        f"{html.escape(b['model'])}</a><br>Fiyatlar markaların yayımladığı tavsiye "
+        f"niteliğindeki tavan fiyatlardır, teklif değildir.</p>"
+    )
+
+
 def sayfa_yaz(yol, baslik, aciklama, icerik, derinlik):
     hedef = CIKTI / yol
     hedef.parent.mkdir(parents=True, exist_ok=True)
@@ -156,6 +344,21 @@ def main():
     agac = defaultdict(lambda: defaultdict(list))
     for k in kayitlar:
         agac[k["marka"]][k["model"]].append(k)
+
+    # Ciftler once hesaplaniyor: model sayfalari kendi karsilastirmalarina
+    # link verecek, yoksa karsilastirma sayfalari siteden erisilemez kalir.
+    ciftler = {}
+    for hyu, ford in RAKIPLER:
+        cift = rakip_ozeti(agac, hyu, ford)
+        if cift:
+            x, y = cift
+            ciftler[(x["marka"], x["model"], y["marka"], y["model"])] = cift
+
+    kar_yolu = defaultdict(list)
+    for (m1, md1, m2, md2) in ciftler:
+        ad = f"{slug(m1)}-{slug(md1)}-vs-{slug(m2)}-{slug(md2)}"
+        kar_yolu[(m1, md1)].append((ad, f"{m2} {md2}"))
+        kar_yolu[(m2, md2)].append((ad, f"{m1} {md1}"))
 
     yollar = []
     for marka, modeller in sorted(agac.items()):
@@ -190,6 +393,8 @@ def main():
                 f" tarafından yayımlanan resmî periyodik bakım tablosundan alınmıştır."
                 f" KDV dâhildir.</p>"
                 + "".join(bolumler)
+                + maliyet_ozeti(mk)
+                + kar_baglantilari(kar_yolu.get((marka, model), []))
                 + '<div class="reklam-alani"></div>'
                 + f"<p class='kaynak'>Kaynak: <a href='{kaynak['kaynak_url']}' rel='nofollow'>"
                 f"{html.escape(marka)} resmî bakım fiyat tablosu</a> · "
@@ -215,6 +420,41 @@ def main():
         )
         yollar.append(f"{ms}/index.html")
 
+    # --- Karsilastirma sayfalari ---------------------------------------
+    for (m1, md1, m2, md2), (x, y) in sorted(ciftler.items()):
+        ad = f"{slug(m1)}-{slug(md1)}-vs-{slug(m2)}-{slug(md2)}"
+        yol = f"karsilastirma/{ad}/index.html"
+        yollar.append(yol)
+        sayfa_yaz(
+            yol,
+            f"{m1} {md1} mi {m2} {md2} mi? Bakım Maliyeti Karşılaştırması",
+            f"{m1} {md1} ve {m2} {md2} periyodik bakım maliyeti karşılaştırması — "
+            f"100.000 km'ye kadar toplam tutar, markaların resmî tablolarından.",
+            karsilastirma(x, y),
+            2,
+        )
+
+    kar_liste = "".join(
+        f"<li><a href='{slug(m1)}-{slug(md1)}-vs-{slug(m2)}-{slug(md2)}/'>"
+        f"{html.escape(m1)} {html.escape(md1)} <span>vs</span> "
+        f"{html.escape(m2)} {html.escape(md2)}</a></li>"
+        for (m1, md1, m2, md2) in sorted(ciftler)
+    )
+    sayfa_yaz(
+        "karsilastirma/index.html",
+        "Bakım Maliyeti Karşılaştırmaları — Hangi Araç Daha Ucuza Bakılır",
+        "İki aracın 100.000 km'ye kadarki toplam periyodik bakım maliyetini "
+        "yan yana koyan karşılaştırmalar, markaların resmî fiyat tablolarından.",
+        "<h1>Bakım maliyeti karşılaştırmaları</h1>"
+        f"<p class='ozet'>{len(ciftler)} karşılaştırma. Her araç, diğer markanın "
+        "aynı yakıtlı modelleri arasından maliyetçe kendisine en yakın olanlarla "
+        "eşleştirildi. Ölçü her yerde aynı: <strong>100.000 km'ye kadar ödenen "
+        "toplam periyodik bakım bedeli</strong>.</p>"
+        f"<ul class='liste'>{kar_liste}</ul>",
+        1,
+    )
+    yollar.append("karsilastirma/index.html")
+
     # Ana sayfa
     kartlar = "".join(
         f"<li><a href='{slug(m)}/'><strong>{html.escape(m)}</strong>"
@@ -231,6 +471,11 @@ def main():
         "her fiyat markanın kendi yayımladığı resmî tablodan alınır ve kaynağı "
         "sayfada gösterilir.</p>"
         f"<ul class='markalar'>{kartlar}</ul>"
+        "<h2>Bakım maliyeti karşılaştırmaları</h2>"
+        "<p class='ozet'>Aynı segmentteki iki aracın 100.000 km'ye kadar "
+        "ödeyeceği toplam bakım bedeli yan yana.</p>"
+        f"<ul class='liste'><li><a href='karsilastirma/'>"
+        f"{len(ciftler)} karşılaştırmanın tamamı</a></li></ul>"
         "<p class='kaynak'>Kapsam yalnızca resmî fiyat tablosu yayımlayan markalarla "
         "sınırlıdır. Fiyat yayımlamayan markalar için sayfa açılmaz.</p>",
         0,
