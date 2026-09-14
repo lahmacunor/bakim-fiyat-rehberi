@@ -482,6 +482,11 @@ def main():
     )
     yollar.append("index.html")
 
+    # Arama motoru site haritasini kendiliginden bulsun diye.
+    (CIKTI / "robots.txt").write_text(
+        f"User-agent: *\nAllow: /\nSitemap: {SITE_ADRES}sitemap.xml\n",
+        encoding="utf-8")
+
     (CIKTI / "sitemap.xml").write_text(
         '<?xml version="1.0" encoding="UTF-8"?>\n'
         '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">'
