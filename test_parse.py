@@ -6,6 +6,7 @@ Fiyat verisi yanlissa sitenin tek degeri gider -- bu test o yuzden var.
 """
 import json
 import sys
+from collections import defaultdict
 from pathlib import Path
 
 sys.stdout.reconfigure(encoding="utf-8")
@@ -49,4 +50,58 @@ assert all(k["model"] and k["motor"] and k["model_yili"] for k in kayitlar), "bo
 assert all(k["kaynak_url"].startswith("https://") for k in kayitlar), "kaynaksiz satir"
 
 modeller = {(k["model"], k["motor"]) for k in kayitlar}
-print(f"OK — {len(kayitlar)} fiyat, {len(modeller)} model-motor, tum kontroller gecti")
+print(f"Hyundai OK — {len(kayitlar)} fiyat, {len(modeller)} model-motor")
+
+
+# --- Ford: resmi hesaplayicidan gozle dogrulanmis fiyatlar ---
+ford = json.loads(
+    (Path(__file__).parent / "veri" / "ford" / "2026-09.json").read_text(encoding="utf-8")
+)
+
+
+def ford_fiyat(model, motor, km, sanziman=None):
+    b = [
+        k for k in ford
+        if k["model"] == model and k["motor"] == motor and k["bakim_km"] == km
+        and (sanziman is None or k["sanziman"] == sanziman)
+    ]
+    assert b, f"{model} / {motor} / {km}km bulunamadi"
+    return b[0]["fiyat_tl"]
+
+
+assert ford_fiyat("BRONCO SPORT (2024- )", "1.5 ECOBOOST", 15000) == 19533
+# Ayni motor, farkli sanziman, farkli fiyat -- sutun ayrimi bunun icin var
+assert ford_fiyat("FOCUS (2015-2018)", "1.5 TDCI 120PS", 45000, "MANUAL B6") == 14741
+assert ford_fiyat("FOCUS (2015-2018)", "1.5 TDCI 120PS", 45000, "POWERSHIFT MPS6") == 32537
+
+assert len(ford) > 1400, f"cok az Ford kaydi: {len(ford)}"
+assert all(1_000 < k["fiyat_tl"] < 500_000 for k in ford), "mantiksiz Ford fiyati"
+assert all(k["bakim_km"] % 5000 == 0 for k in ford), "bozuk Ford km degeri"
+assert all(k["kaynak_url"].startswith("https://") for k in ford), "kaynaksiz Ford satiri"
+print(f"Ford OK — {len(ford)} fiyat, {len({k['model'] for k in ford})} model")
+
+
+# --- Uretim: tabloya girmeyen fiyat kalmamali ---
+# Sutunlar motora gore acilip sanziman yok sayilirsa Ford'un 509 satiri sessizce
+# dusuyordu. Bu kontrol o hatanin geri gelmesini yakalar.
+import uret
+
+hepsi = ford + kayitlar
+for k in hepsi:
+    k["model"] = uret.model_adi(k["model"])
+gruplar = defaultdict(list)
+for k in hepsi:
+    gruplar[(k["marka"], k["model"], k["model_yili"], k["yakit"])].append(k)
+
+for grup, gk in gruplar.items():
+    kmler = sorted({x["bakim_km"] for x in gk})
+    gosterilen = {
+        (baslik.split(" · ")[0], km, f[km])
+        for baslik, f in uret.sutunlastir(gk, kmler)
+        for km in f
+    }
+    for k in gk:
+        anahtar = (k["motor"], k["bakim_km"], k["fiyat_tl"])
+        assert anahtar in gosterilen, f"{grup} icin tabloya girmeyen fiyat: {anahtar}"
+
+print(f"Uretim OK — {len(hepsi)} fiyatin hepsi bir tablo hucresinde")

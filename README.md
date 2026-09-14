@@ -15,6 +15,7 @@ yayımlıyor. Kimse bunları tek yerde birleştirmiyor — bu site onu yapıyor.
 
 ```bash
 python cek/hyundai.py   # resmi PDF'i indir, veri/hyundai/<tarih>.json uret
+python cek/ford.py      # resmi hesaplayici API'sinden veri/ford/<tarih>.json uret
 python test_parse.py    # parse dogrulugunu kontrol et
 python uret.py          # docs/ altina statik siteyi uret
 ```

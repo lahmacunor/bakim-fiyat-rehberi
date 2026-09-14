@@ -51,26 +51,71 @@ def tl(sayi):
     return f"{sayi:,}".replace(",", ".") + " TL"
 
 
-def tablo(kayitlar):
-    """Satirlar = bakim araligi, sutunlar = motor secenekleri."""
-    motorlar = sorted({k["motor"] for k in kayitlar})
-    kmler = sorted({k["bakim_km"] for k in kayitlar})
-    fiyatlar = {(k["motor"], k["bakim_km"]): k["fiyat_tl"] for k in kayitlar}
+def sanziman_kod(ham):
+    """Ford ayni sanzimani birden cok yazimla donuyor ("8 ILERI OTOMATIK" /
+    "8 İLERİ OTOMATİK ŞANZIMAN"). Karsilastirma icin tek bicime indiriyoruz."""
+    s = re.sub(r"\b(SANZIMAN|TRANS|TRANSMISSION)\b", "", ham.translate(TR_ASCII).upper())
+    return re.sub(r"\s+", " ", s).strip()
 
-    bas = "".join(f"<th>{html.escape(m)}</th>" for m in motorlar)
+
+def sanziman_adi(kod):
+    """Sutun basligi icin kisa ad. Ford'un ic kodlari (MT82, VMT6, 6R80)
+    okuyucuya bir sey anlatmiyor; tur yeter."""
+    if "POWERSHIFT" in kod or "DCT" in kod:
+        return "PowerShift"
+    if "MANUEL" in kod or "MANUAL" in kod or re.search(r"\bMAN\b", kod) or "VMT6" in kod:
+        return "Manuel"
+    if "OTOMATIK" in kod or "AUTO" in kod or "CVT" in kod:
+        return "Otomatik"
+    return kod.title()
+
+
+def sutunlastir(kayitlar, kmler):
+    """[(baslik, {km: fiyat})] uretir.
+
+    Sutun yalnizca motora gore acilamaz: Ford'da ayni motorun manuel ve
+    PowerShift'i farkli fiyatlanir (FOCUS 1.5 TDCI 45.000 km -> 14.741 / 32.537).
+    Ama hesaplayici cogu zaman ayni fiyati birden cok sanziman secenegiyle
+    donuyor; ayni fiyat dizisini veren secenekleri tek sutunda birlestiriyoruz.
+    """
+    hucre = defaultdict(dict)
+    for k in kayitlar:
+        hucre[(k["motor"], sanziman_kod(k.get("sanziman", "")))][k["bakim_km"]] = k["fiyat_tl"]
+
+    sutunlar = []
+    for motor in sorted({m for m, _ in hucre}):
+        dizi = defaultdict(list)
+        for m, kod in sorted(hucre):
+            if m == motor:
+                dizi[tuple(hucre[(m, kod)].get(km) for km in kmler)].append(kod)
+
+        if len(dizi) == 1:
+            sutunlar.append((motor, hucre[(motor, next(iter(dizi.values()))[0])]))
+            continue
+
+        adlar = [sanziman_adi(kodlar[0]) for kodlar in dizi.values()]
+        if len(set(adlar)) < len(adlar):  # kisa ad ayirmiyorsa Ford'un yazimi
+            adlar = [kodlar[0].title() for kodlar in dizi.values()]
+        for ad, kodlar in zip(adlar, dizi.values()):
+            sutunlar.append((f"{motor} · {ad}", hucre[(motor, kodlar[0])]))
+    return sutunlar
+
+
+def tablo(kayitlar):
+    """Satirlar = bakim araligi, sutunlar = motor (gerekirse + sanziman)."""
+    kmler = sorted({k["bakim_km"] for k in kayitlar})
+    sutunlar = sutunlastir(kayitlar, kmler)
+
+    bas = "".join(f"<th>{html.escape(b)}</th>" for b, _ in sutunlar)
     satirlar = []
     for km in kmler:
         hucre = "".join(
-            f"<td>{tl(fiyatlar[(m, km)]) if (m, km) in fiyatlar else '—'}</td>"
-            for m in motorlar
+            f"<td>{tl(f[km]) if km in f else '—'}</td>" for _, f in sutunlar
         )
         km_yazi = f"{km:,}".replace(",", ".")
         satirlar.append(f"<tr><th>{km_yazi} km</th>{hucre}</tr>")
 
-    toplam = "".join(
-        f"<td>{tl(sum(fiyatlar[(m, k)] for k in kmler if (m, k) in fiyatlar))}</td>"
-        for m in motorlar
-    )
+    toplam = "".join(f"<td>{tl(sum(f.values()))}</td>" for _, f in sutunlar)
     son_km = f"{max(kmler):,}".replace(",", ".")
     return (
         f'<div class="kaydir"><table><thead><tr><th>Bakım aralığı</th>{bas}</tr></thead>'
@@ -127,8 +172,11 @@ def main():
                 yk = [k for k in mk if k["model_yili"] == yil]
                 for yakit in sorted({k["yakit"] for k in yk}):
                     yyk = [k for k in yk if k["yakit"] == yakit]
+                    # Ford'da model adi zaten yil araligini tasiyor
+                    # ("CONNECT (2022-)"); tek yil varsa basliga tekrar yazmiyoruz.
+                    yil_yazi = f" {html.escape(yil)}" if len(yillar) > 1 else ""
                     bolumler.append(
-                        f"<h2>{html.escape(model)} {html.escape(yil)}"
+                        f"<h2>{html.escape(model)}{yil_yazi}"
                         f" <span class='etiket'>{yakit}</span></h2>{tablo(yyk)}"
                     )
 
