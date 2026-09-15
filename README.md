@@ -5,6 +5,11 @@ yayımladığı resmî tablodan. Her fiyat satırı kaynağını taşır.
 
 Canlı: https://lahmacunor.github.io/bakim-fiyat-rehberi/
 
+> ⚪ **Hat donduruldu (2026-09-15).** Kapsam dar: Türkiye'de resmî bakım fiyatı
+> yayımlayan üç marka var (Hyundai, Ford, Kia) ve üçü de eklendi; park listesinin
+> başındaki Renault/Fiat/VW/Toyota yayımlamıyor. Kod çalışır durumda, site canlı.
+> Gerekçe ve geri açma adımları: vault `🏰 300-Projects/Bakim-Fiyat-Rehberi/Project.md`.
+
 ## Neden
 
 Mevcut "araç masrafı hesaplama" siteleri bakımı tahmin ediyor ("ortalama
