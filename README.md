@@ -16,12 +16,16 @@ yayımlıyor. Kimse bunları tek yerde birleştirmiyor — bu site onu yapıyor.
 ```bash
 python cek/hyundai.py   # resmi PDF'i indir, veri/hyundai/<tarih>.json uret
 python cek/ford.py      # resmi hesaplayici API'sinden veri/ford/<tarih>.json uret
+python cek/kia.py       # ICE + EV PDF'lerini bakim sayfasindan bulup cek
 python test_parse.py    # parse dogrulugunu kontrol et
 python uret.py          # docs/ altina statik siteyi uret
 ```
 
 Aylık akış: markanın yeni tablosu çıkınca `cek/` script'indeki `KAYNAK_URL` ve
-`KAYNAK_TARIH` güncellenir, üç komut sırayla çalıştırılır, commit + push.
+`KAYNAK_TARIH` güncellenir, komutlar sırayla çalıştırılır, commit + push.
+Kia'da bu adım yok — PDF bağlantıları her çalıştırmada bakım sayfasından okunur.
+
+Gerekenler: `pip install pypdf pdfplumber`.
 
 ## Kurallar
 
@@ -31,6 +35,9 @@ Aylık akış: markanın yeni tablosu çıkınca `cek/` script'indeki `KAYNAK_UR
 - Marka logoları kullanılmaz, yalnızca marka adı.
 - Her kaynağa ayda bir kez gidilir.
 - Fiyat yayımlamayan marka için sayfa açılmaz (Fiat, Toyota, VW şu an kapsam dışı).
+
+Kapsamdaki markalar: Hyundai (aylık PDF), Ford (resmî hesaplayıcı API),
+Kia (aylık ICE + EV PDF).
 
 ## Yapı
 

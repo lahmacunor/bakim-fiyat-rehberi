@@ -81,12 +81,61 @@ assert all(k["kaynak_url"].startswith("https://") for k in ford), "kaynaksiz For
 print(f"Ford OK — {len(ford)} fiyat, {len({k['model'] for k in ford})} model")
 
 
+# --- Kia: resmi PDF'ten gozle dogrulanmis fiyatlar ---
+kia = json.loads(
+    (Path(__file__).parent / "veri" / "kia" / "2026-09.json").read_text(encoding="utf-8")
+)
+
+
+def kia_fiyat(model, motor, km):
+    b = [
+        k for k in kia
+        if k["model"] == model and k["motor"] == motor and k["bakim_km"] == km
+    ]
+    assert len(b) == 1, f"Kia {model} / {motor} / {km}km -> {len(b)} kayit"
+    return b[0]["fiyat_tl"]
+
+
+assert kia_fiyat("NİRO DE", "HİBRİT OTOMATİK", 15000) == 17375
+assert kia_fiyat("SORENTO UM", "2.0 DİZEL OTOMATİK", 60000) == 27686
+assert kia_fiyat("SPORTAGE KM", "2.0 DİZEL OTOMATİK", 15000) == 21105
+assert kia_fiyat("SPORTAGE QLE", "2.0L CRDI DİZEL OTOMATİK", 15000) == 25053
+assert kia_fiyat("Ceed ED", "1.6L BENZİNLİ OTOMATİK", 15000) == 14105
+assert kia_fiyat("EV9 MV", "ELEKTRİKLİ OTOMATİK", 30000) == 13730
+
+# Model adi birlestirilmis hucrede ve grubun ORTASINA yazili: asagidaki satirin
+# kendi hucresinde model adi yok, ustundeki satirda da yok. Yanlis dagitilirsa
+# fiyat baska modelin sayfasina duser -- testin asil isi bu.
+assert kia_fiyat("SPORTAGE SLE", "1.6 BENZİNLİ DÜZ VİTES", 15000) == 16364
+assert kia_fiyat("Ceed CD", "1.6L DSL DCT MHEV (DİZEL OTOMATİK)", 15000) == 20073
+
+kia_motor = defaultdict(set)
+for k in kia:
+    kia_motor[k["model"]].add(k["motor"])
+# PDF'te gozle sayilan satir sayilari (birlestirilmis hucre sinirlari)
+for model, adet in [("SPORTAGE KM", 1), ("SPORTAGE SLE", 3), ("SPORTAGE QLE", 5),
+                    ("Sportage NQ5e", 4), ("Ceed ED", 5), ("CEED JD", 2),
+                    ("PRO CEED JD", 2), ("Ceed CD", 5), ("Yeni Xceed CD CUV", 2)]:
+    assert len(kia_motor[model]) == adet, \
+        f"Kia {model}: {len(kia_motor[model])} motor, {adet} olmaliydi"
+
+# Km basliklari (15.000, 30.000) fiyat sanilirsa model basina 10 yerine
+# 20 satir cikar; toplam satir sayisi o hatayi yakalar.
+assert len(kia) == 620, f"Kia satir sayisi degisti: {len(kia)}"
+assert all(1_000 < k["fiyat_tl"] < 500_000 for k in kia), "mantiksiz Kia fiyati"
+assert all(k["bakim_km"] % 5000 == 0 for k in kia), "bozuk Kia km degeri"
+assert all(k["model"] and k["motor"] and k["model_yili"] for k in kia), "bos Kia alani"
+assert all(k["yakit"] != "bilinmiyor" for k in kia), "yakit turu cozulemeyen Kia satiri"
+assert all(k["kaynak_url"].startswith("https://") for k in kia), "kaynaksiz Kia satiri"
+print(f"Kia OK — {len(kia)} fiyat, {len(kia_motor)} model")
+
+
 # --- Uretim: tabloya girmeyen fiyat kalmamali ---
 # Sutunlar motora gore acilip sanziman yok sayilirsa Ford'un 509 satiri sessizce
 # dusuyordu. Bu kontrol o hatanin geri gelmesini yakalar.
 import uret
 
-hepsi = ford + kayitlar
+hepsi = ford + kayitlar + kia
 for k in hepsi:
     k["model"] = uret.model_adi(k["model"])
 gruplar = defaultdict(list)
