@@ -1,6 +1,6 @@
 """Hyundai parse kontrolu.  Calistir:  python test_parse.py
 
-Buradaki fiyatlar Mayis 2026 PDF'inden GOZLE okunup yazildi. Parse mantigi
+Buradaki fiyatlar Eylul 2026 PDF'inden GOZLE okunup yazildi. Parse mantigi
 bozulursa (sutun kaymasi, satir birlestirme hatasi) bu testler kirilir.
 Fiyat verisi yanlissa sitenin tek degeri gider -- bu test o yuzden var.
 """
@@ -11,7 +11,7 @@ from pathlib import Path
 
 sys.stdout.reconfigure(encoding="utf-8")
 
-VERI = Path(__file__).parent / "veri" / "hyundai" / "2026-05.json"
+VERI = Path(__file__).parent / "veri" / "hyundai" / "2026-09.json"
 kayitlar = json.loads(VERI.read_text(encoding="utf-8"))
 
 
@@ -25,22 +25,32 @@ def fiyat(model, motor, km):
 
 
 # --- PDF'ten gozle dogrulanmis fiyatlar ---
-assert fiyat("IONIQ5 NE PE", "125KW+160KW (63 KWH+84 KWH)", 15000) == 5642
-assert fiyat("IONIQ5 NE PE", "125KW+160KW (63 KWH+84 KWH)", 30000) == 14081
-assert fiyat("İ20 (BC3) FL", "1.0 T-GDI KAPPA", 15000) == 10472
-assert fiyat("İ20 (BC3) FL", "1.0 T-GDI KAPPA", 30000) == 11888
-assert fiyat("ELANTRA (CN7)", "1.6 SMARTSTREAM GAMMA II", 15000) == 15126
-assert fiyat("ACCENT ERA (MCT)", "1.4&1.6", 15000) == 9072
-assert fiyat("TUCSON (NX4E)", "1.6 T-GDI SMARTSTREAM GAMMA II", 15000) == 17697
+assert fiyat("IONIQ5 NE PE", "125KW+160KW (63 KWH+84 KWH)", 15000) == 6262
+assert fiyat("IONIQ5 NE PE", "125KW+160KW (63 KWH+84 KWH)", 30000) == 15538
+assert fiyat("İ20 (BC3) FL", "1.0 T-GDI KAPPA", 15000) == 12981
+assert fiyat("İ20 (BC3) FL", "1.0 T-GDI KAPPA", 30000) == 14577
+assert fiyat("ELANTRA (CN7)", "1.6 SMARTSTREAM GAMMA II", 15000) == 17303
+assert fiyat("ACCENT ERA (MCT)", "1.4&1.6", 15000) == 10145
+assert fiyat("TUCSON (NX4E)", "1.6 T-GDI SMARTSTREAM GAMMA II", 15000) == 20316
 
 # i20 N farkli sutun duzeninde (12 aralik, 10.000'lik adimlar)
-assert fiyat("i20 N", "1.6 T-GDI 6MT", 10000) == 13016
-assert fiyat("i20 N", "1.6 T-GDI 6MT", 70000) == 25570
+assert fiyat("i20 N", "1.6 T-GDI 6MT", 10000) == 15150
+assert fiyat("i20 N", "1.6 T-GDI 6MT", 70000) == 29382
 
 # Satir sonunda tire ile bolunmus motor adi birlesmis olmali
 assert any(
     k["motor"] == "1.6 T-GDI SMARTSTREAM GAMMA II" for k in kayitlar
 ), "tire ile bolunmus motor adi birlestirilememis"
+
+# Ticari arac tablosunda 13 sutun var ama A2 motorlarda 5.000 km hucresi bos.
+# Fiyatlar km ile sona hizalanarak eslesiyor; kaymayi bu iki kontrol yakalar.
+assert fiyat("H100 KAMYONET EURO6", "2.5 A2", 10000) == 20428
+assert fiyat("H100 KAMYONET EURO6", "2.5 A2", 120000) == 34885
+assert not [k for k in kayitlar
+            if k["model"] == "H100 KAMYONET EURO6" and k["bakim_km"] == 5000],     "A2 motorda 5.000 km bakimi yok, satir kaymis"
+# Ayni sayfada 13 fiyatin tamamini tasiyan satir (TCI) dogru hizalanmali
+assert fiyat("STAREX VAN&MİNİBÜS (A1)", "2.5 TCI", 5000) == 7770
+assert fiyat("STAREX VAN&MİNİBÜS (A1)", "2.5 TCI", 60000) == 44932
 
 # --- Sagilik kontrolleri ---
 assert len(kayitlar) > 1000, f"cok az kayit: {len(kayitlar)}"

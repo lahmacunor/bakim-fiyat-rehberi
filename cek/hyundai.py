@@ -17,9 +17,9 @@ sys.stdout.reconfigure(encoding="utf-8")
 
 KAYNAK_URL = (
     "https://www.hyundai.com/content/dam/hyundai/downloads/tr/tr/"
-    "periyodik-bakim-fiyatlari/periyodik-bakim-tablosu-mayis-2026.pdf"
+    "periyodik-bakim-fiyatlari/periyodik-bakim-tablosu-eylul-2026.pdf"
 )
-KAYNAK_TARIH = "2026-05"
+KAYNAK_TARIH = "2026-09"
 
 KOK = Path(__file__).resolve().parent.parent
 HEDEF = KOK / "veri" / "hyundai"
@@ -59,14 +59,16 @@ def km_sutunlari(satir):
     return [int(s.replace(".", "")) for s in FIYAT.findall(satir)]
 
 
-def satirlari_birlestir(satirlar, sutun_sayisi):
-    """PDF'te motor adlari satir sonunda kirilabiliyor:
+def satirlari_birlestir(satirlar):
+    """PDF'te model ve motor adlari satir sonunda kirilabiliyor:
 
         "1.6 T-GDI SMART-"
         "STREAM GAMMA II 17.697 19.485 ..."
 
-    Tam `sutun_sayisi` kadar fiyat tasimayan satiri sonrakiyle birlestirir.
-    Satir sonundaki tire kirilma isaretidir, atilir ve bosluksuz eklenir.
+    Hic fiyat tasimayan satiri sonrakiyle birlestirir. Olcut "sutun sayisi
+    kadar fiyat" DEGIL: ticari arac tablosunda bazi satirlarda 5.000 km hucresi
+    bos (13 sutun, 12 fiyat) ve o satirlar sonrakiyle birlestirilip veriyi
+    bozuyordu. Satir sonundaki tire kirilma isaretidir, atilir ve bosluksuz eklenir.
     """
     cikti, tampon = [], ""
     for ham in satirlar:
@@ -76,7 +78,7 @@ def satirlari_birlestir(satirlar, sutun_sayisi):
         if tampon:
             s = tampon[:-1] + s if tampon.endswith("-") else tampon + " " + s
             tampon = ""
-        if len(FIYAT.findall(s)) >= sutun_sayisi:
+        if FIYAT.search(s):
             cikti.append(s)
         else:
             tampon = s
@@ -120,10 +122,12 @@ def sayfayi_isle(metin):
 
     kayitlar = []
     baglam_model, baglam_yil = "", ""
-    for satir in satirlari_birlestir(govde, len(kmler)):
+    for satir in satirlari_birlestir(govde):
         bulunanlar = list(FIYAT.finditer(satir))
-        if len(bulunanlar) < len(kmler):
+        if len(bulunanlar) < len(kmler) - 2:
             # Fiyatsiz satir = model basligi ("İ20 (BC3) FL 2023~")
+            if bulunanlar:
+                print(f"  ! eksik fiyatli satir atlandi: {satir[:70]}", file=sys.stderr)
             m = YIL.search(satir)
             if m:
                 baglam_model = satir[: m.start()].strip() or baglam_model
@@ -142,7 +146,9 @@ def sayfayi_isle(metin):
             continue
         baglam_model, baglam_yil = model, yil
 
-        for km, eslesme in zip(kmler, alinan):
+        # Eksik hucre satirin BASINDA oluyor (5.000 km yalniz bazi modellerde
+        # var), bu yuzden fiyatlar sona hizalanarak km ile eslestiriliyor.
+        for km, eslesme in zip(kmler[-len(alinan):], alinan):
             tutar = eslesme.group()
             kayitlar.append({
                 "marka": "Hyundai",
